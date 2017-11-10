@@ -1,0 +1,123 @@
+---
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plyr)
+library(ggplot2)
+```
+
+#Loading and preprocessing the data
+
+```{r}
+df <- read.csv(unz("activity.zip", "activity.csv"), stringsAsFactors = FALSE)
+
+head(df)
+
+```
+
+
+#What is mean total number of steps taken per day?
+
+We begin by 
+
+  1. Calculating the total number of steps taken per day
+  
+  2. Building a histogram of the total number of steps taken each day
+  
+  3. And calculating the mean and median of the total number of steps per day across all the days. 
+
+
+```{r, warning = FALSE}
+
+totalSteps <- ddply(df, c("date"), summarize, stepsPerDay = sum(steps, na.rm = TRUE))
+ggplot(data = totalSteps, aes(stepsPerDay )) + geom_histogram()
+
+```
+
+```{r}
+mean <- mean(totalSteps$stepsPerDay)
+median <- median(totalSteps$stepsPerDay)
+data.frame(mean, median)
+
+```
+
+#What is the average daily activity pattern?
+
+To look into this we will 
+
+  1. Make a time series plot of the average number of steps taken. This is the average by interval across days. 
+  
+  2. Identify the 5-minute interval which on average contains the maximum number of steps. 
+
+```{r}
+byInterval <- ddply(df, c("interval"), summarize, aveSteps = mean(steps, na.rm = TRUE))
+
+ggplot(data = byInterval) +
+    geom_line(aes(x=interval, y = aveSteps, group = 1)) +
+    labs(x = "5 minute interval", y = "Average steps per interval") + 
+    ggtitle("Average Daily Activity Pattern")
+
+maxSteps <- max(byInterval$aveSteps)
+interval<- byInterval[byInterval$aveSteps == max(byInterval$aveSteps),]$interval
+data.frame(maxSteps, interval)
+
+```
+
+#Imputing missing values
+
+1. First let's look at the number of missing values. 
+
+```{r}
+rowsWithNAs <- dim(is.na(df))[1]
+rowsWithNAs
+```
+
+
+2. That's a lot. We can use a prebuilt method to fill these in using the "mice" library and the pmm (predictive mean matching) method. This function call generates 1 completed data frame with imputed values. 
+
+3. We'll build a new dataset with the imputed values included. 
+
+```{r}
+library(mice)
+tempdf <- mice(data = df, m = 1, method = "pmm", maxit = 10)
+completedf <- complete(tempdf, 1)
+```
+
+4. Now let's look at a histogram of the total number of steps taken each day after missing values are imputed along with the new mean and median of average total steps taken across days. 
+
+```{r}
+completeTotalSteps <- ddply(completedf, c("date"), summarize, stepsPerDay = sum(steps))
+ggplot(data = completeTotalSteps, aes(stepsPerDay)) + geom_histogram()
+
+mean <- mean(completeTotalSteps$stepsPerDay)
+median <- median(completeTotalSteps$stepsPerDay)
+data.frame(mean, median)
+
+```
+
+We can see that we no longer have as many days with 0 total steps. And because we've filled in missing values, both our mean and median for total steps per day have increased. 
+
+#Are there differences in activity patterns between weekdays and weekends?
+
+To answer this question we first need to 
+
+  1. Identify dates in the data as weekdays or weekends.
+  
+  2. Average steps per interval across all weekend days and again across all weekday days. 
+  
+  3. Plot the resulting averaged data in separate panels. 
+
+```{r}
+completedf$day <- weekdays(as.Date(completedf$date))
+completedf$weekend <- ifelse(completedf$day %in% c("Saturday","Sunday"), "Weekend", "Weekday")
+
+res <- ddply(completedf, c("interval","weekend"), summarize, aveSteps = mean(steps, na.rm = TRUE))
+
+ggplot(res, aes(interval, aveSteps)) + geom_line() + facet_grid( .~ weekend)
+
+```
+
+Sure looks like there is an activity pattern difference! That early morning spike in movement during the week gets smoothed out and pushed back into a nice slow morning in the weekend. And the weekend shows higher activity levels in the middle of the day, hopefully because fewer people are sitting around at desks. 
+
